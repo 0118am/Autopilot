@@ -16,7 +16,6 @@
 # --- Logs / flight records ---
 **/*.ulg
 **/*.log
-**/*.txt
 
 # --- Bags / datasets ---
 **/*.bag
@@ -54,3 +53,15 @@ venv/
 .idea/
 .DS_Store
 *.swp
+
+# --- Workspace generated ---
+ego_swarm_ws/build/
+ego_swarm_ws/install/
+ego_swarm_ws/log/
+px4_ros_ws/build/
+px4_ros_ws/install/
+px4_ros_ws/log/
+
+# --- Editor / archives ---
+**/.vscode/
+**/.vscode.zip
