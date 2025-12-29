@@ -1,0 +1,56 @@
+# --- ROS2 / colcon ---
+**/build/
+**/install/
+**/log/
+
+# --- Gazebo / gz cache ---
+**/.gz/
+**/gazebo/
+**/ignition/
+
+# --- PX4 build artifacts ---
+**/build_px4/
+**/PX4-Autopilot/build/
+**/PX4-Autopilot/build_*/
+
+# --- Logs / flight records ---
+**/*.ulg
+**/*.log
+**/*.txt
+
+# --- Bags / datasets ---
+**/*.bag
+**/*.bag.active
+**/*.db3
+**/*.mcap
+
+# --- Point clouds / meshes / large binaries ---
+**/*.pcd
+**/*.ply
+**/*.stl
+**/*.zip
+**/*.tar
+**/*.tar.gz
+
+# --- ML weights ---
+**/*.onnx
+**/*.pt
+**/*.pth
+
+# --- Python / venv ---
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+
+# --- Secrets ---
+.env
+**/*.key
+**/*token*
+**/*secret*
+
+# --- IDE ---
+.vscode/
+.idea/
+.DS_Store
+*.swp
