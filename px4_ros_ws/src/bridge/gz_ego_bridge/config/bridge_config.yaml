@@ -1,0 +1,27 @@
+---
+# 仿真时间（如果 /clock 没数据，把 gz_topic_name 换成 /world/default/clock）
+- ros_topic_name: "/clock"
+  gz_topic_name: "/world/default/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# 里程计（你现有 gz topic）
+- ros_topic_name: "/odom"
+  gz_topic_name: "/model/x500_0/odometry_with_covariance"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.OdometryWithCovariance"
+  direction: GZ_TO_ROS
+
+# 激光：你有两条 scan，先选一条作为 /scan，另一条映射成 /scan2 备用
+- ros_topic_name: "/scan"
+  gz_topic_name: "/world/default/model/x500_0/link/lidar_sensor_link/sensor/lidar/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/scan2"
+  gz_topic_name: "/world/default/model/x500_0/link/link/sensor/lidar_2d_v2/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
