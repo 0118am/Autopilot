@@ -412,11 +412,12 @@ int main(int argc, char **argv) {
   cam2world = Matrix4d::Identity();
 
   // Create ROS 2 subscribers and publishers
+  auto pc_qos = rclcpp::SensorDataQoS().keep_last(5);
   auto global_map_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "global_map", 1, rcvGlobalPointCloudCallBack);
+    "global_map", pc_qos, rcvGlobalPointCloudCallBack);
   
   auto local_map_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "local_map", 1, rcvLocalPointCloudCallBack);
+    "local_map", pc_qos, rcvLocalPointCloudCallBack);
   
   auto odom_sub = node->create_subscription<nav_msgs::msg::Odometry>(
     "odometry", 50, rcvOdometryCallback);
