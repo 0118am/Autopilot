@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(quadrotor_msgs REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -26,7 +27,7 @@ endif()
 ament_package()
 
 add_executable(pose_to_px4_offboard src/pose_to_px4_offboard.cpp)
-ament_target_dependencies(pose_to_px4_offboard rclcpp px4_msgs geometry_msgs)
+ament_target_dependencies(pose_to_px4_offboard rclcpp px4_msgs geometry_msgs quadrotor_msgs)
 
 install(TARGETS pose_to_px4_offboard
   DESTINATION lib/${PROJECT_NAME}

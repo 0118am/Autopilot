@@ -109,7 +109,12 @@ def generate_launch_description():
             ('grid_map/cloud', ['drone_', drone_id, '_', cloud_topic]),
             ('grid_map/pose', ['drone_', drone_id, '_', camera_pose_topic]),
             ('grid_map/depth', ['drone_', drone_id, '_', depth_topic]),
-            ('grid_map/occupancy_inflate', ['drone_', drone_id, '_grid/grid_map/occupancy_inflate'])
+            ('grid_map/occupancy_inflate', ['drone_', drone_id, '_grid/grid_map/occupancy_inflate']),
+            # ===== 手动目标输入：把 EGO 默认 goal 订阅重映射到 RViz 的 /goal_pose =====
+            ('/move_base_simple/goal', '/goal_pose'),
+            ('move_base_simple/goal',  '/goal_pose'),
+            ('/goal',                  '/goal_pose'),
+            ('goal',                   '/goal_pose'),
         ],
         parameters=[
             {'fsm/flight_type': flight_type},

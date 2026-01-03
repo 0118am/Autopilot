@@ -31,19 +31,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TRPYCommand.msg"
   "msg/Odometry.msg"
   "msg/PolynomialTrajectory.msg"
-  DEPENDENCIES geometry_msgs nav_msgs std_msgs
-)
-
-# ---- FIX: install rosidl generated C++ headers for downstream packages ----
-install(
-  DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}/
-  DESTINATION include/${PROJECT_NAME}
-)
-
-# （可选）如果你也希望下游能 include C 头：quadrotor_msgs/msg/position_command.h
-install(
-  DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_c/${PROJECT_NAME}/
-  DESTINATION include/${PROJECT_NAME}
+  DEPENDENCIES geometry_msgs nav_msgs std_msgs rclcpp
 )
 
 # 将该包对应的依赖导出，其他包在调用是会自动依赖
@@ -69,8 +57,8 @@ add_library(decode_msgs src/decode_msgs.cpp)
 add_library(encode_msgs src/encode_msgs.cpp)
 
 # 设置依赖
-ament_target_dependencies(decode_msgs std_msgs geometry_msgs nav_msgs)
-ament_target_dependencies(encode_msgs std_msgs geometry_msgs nav_msgs)
+ament_target_dependencies(decode_msgs std_msgs geometry_msgs nav_msgs rclcpp) 
+ament_target_dependencies(encode_msgs std_msgs geometry_msgs nav_msgs rclcpp) 
 
 # 使用 rosidl_get_typesupport_target 获取类型支持目标并链接库
 rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
