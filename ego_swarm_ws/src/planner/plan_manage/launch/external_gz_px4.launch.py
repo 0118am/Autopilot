@@ -76,8 +76,8 @@ def generate_launch_description():
             'fx': str(387.229248046875),
             'fy': str(387.229248046875),
 
-            'max_vel': str(2.0),
-            'max_acc': str(6.0),
+            'max_vel': str(1.0),
+            'max_acc': str(1.2),
             'planning_horizon': str(7.5),
             'use_distinctive_trajs': 'True',
             'flight_type': str(1),

@@ -50,6 +50,16 @@ CHECK_TF="${CHECK_TF:-1}"
 
 # 静态 TF 兜底：如果你已经有 robot_state_publisher/URDF 在发 base_link->camera_link，把它设为 0
 ENABLE_BASE_CAMERA_TF="${ENABLE_BASE_CAMERA_TF:-1}"
+ENABLE_WORLD_ODOM_TF="${ENABLE_WORLD_ODOM_TF:-1}"
+
+# ===== EGO 输入适配器（把 /drone_0_camera/* + /drone_0_cloud + /drone_0_odom 喂给 /drone_0_pcl_render_node/*）=====
+ENABLE_EGO_INPUT_ADAPTER="${ENABLE_EGO_INPUT_ADAPTER:-1}"
+
+PCL_NS="/drone_${DRONE_ID}_pcl_render_node"
+PCL_DEPTH_TOPIC="${PCL_NS}/depth"
+PCL_DEPTH_INFO_TOPIC="${PCL_NS}/camera_info"
+PCL_CAMERA_POSE_TOPIC="${PCL_NS}/camera_pose"
+PCL_CLOUD_TOPIC="${PCL_NS}/cloud"
 
 LOG_DIR="${LOG_DIR:-$AUTOPILOT_DIR/_logs_ego_stack}"
 mkdir -p "$LOG_DIR"
@@ -102,6 +112,8 @@ cleanup(){
   kill_if_running "gz_bridge"
   kill_if_running "tf_base_camera"
   kill_if_running "px4_offboard"
+  kill_if_running "tf_world_odom"
+  kill_if_running "ego_input_adapter"
 }
 trap cleanup EXIT
 
@@ -205,14 +217,22 @@ fi
 wait_topic_once "${ROS_CLOUD_TOPIC}" 10 || true
 
 ### ===== 3) TF =====
-# base_link -> camera_link（仅兜底；如果已有 URDF/robot_state_publisher 在发这条 TF，请把 ENABLE_BASE_CAMERA_TF=0）
+# world -> odom（让 world frame 存在；否则 occupancy_inflate 用 world 会一直空）
+if [[ "$ENABLE_WORLD_ODOM_TF" == "1" ]]; then
+  start_bg "tf_world_odom" ros2 run tf2_ros static_transform_publisher \
+    --frame-id world --child-frame-id odom \
+    --x 0 --y 0 --z 0 --roll 0 --pitch 0 --yaw 0 \
+    "${SIM_ARGS[@]}"
+else
+  log "SKIP: world->odom static TF disabled (ENABLE_WORLD_ODOM_TF=0)"
+fi
+
+# base_link -> camera_link（仅兜底）
 if [[ "$ENABLE_BASE_CAMERA_TF" == "1" ]]; then
   start_bg "tf_base_camera" ros2 run tf2_ros static_transform_publisher \
     --frame-id base_link --child-frame-id camera_link \
     --x 0 --y 0 --z 0 --roll 0 --pitch 0 --yaw 0 \
     "${SIM_ARGS[@]}"
-else
-  log "SKIP: base_link->camera_link static TF disabled (ENABLE_BASE_CAMERA_TF=0)"
 fi
 
 ### ===== 4) PX4 -> ROS odom =====
@@ -228,6 +248,111 @@ wait_topic_once "${ROS_ODOM_TOPIC}" 10 || true
 log "TF publishers:"
 ros2 topic info -v /tf || true
 ros2 topic info -v /tf_static || true
+
+### ===== 4.6) EGO 输入适配器：确保 /drone_0_pcl_render_node/* 有数据 =====
+if [[ "$ENABLE_EGO_INPUT_ADAPTER" == "1" ]]; then
+  ADAPTER_PY="$LOG_DIR/ego_input_adapter.py"
+  cat > "$ADAPTER_PY" <<'PY'
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from sensor_msgs.msg import PointCloud2, Image, CameraInfo
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped
+
+QOS_SENSOR = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+QOS_DEFAULT = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
+class Adapter(Node):
+    def __init__(self):
+        super().__init__("ego_input_adapter")
+
+        # inputs
+        self.in_odom  = self.declare_parameter("in_odom",  "/drone_0_odom").value
+        self.in_depth = self.declare_parameter("in_depth", "/drone_0_camera/depth/image_raw").value
+        self.in_info  = self.declare_parameter("in_info",  "/drone_0_camera/depth/camera_info").value
+        self.in_cloud = self.declare_parameter("in_cloud", "/drone_0_cloud").value
+
+        # outputs (EGO 已经在订阅这些名字)
+        self.out_pose  = self.declare_parameter("out_pose",  "/drone_0_pcl_render_node/camera_pose").value
+        self.out_depth = self.declare_parameter("out_depth", "/drone_0_pcl_render_node/depth").value
+        self.out_info  = self.declare_parameter("out_info",  "/drone_0_pcl_render_node/camera_info").value
+        self.out_cloud = self.declare_parameter("out_cloud", "/drone_0_pcl_render_node/cloud").value
+
+        self.pub_pose  = self.create_publisher(PoseStamped,  self.out_pose,  QOS_DEFAULT)
+        self.pub_depth = self.create_publisher(Image,        self.out_depth, QOS_SENSOR)
+        self.pub_info  = self.create_publisher(CameraInfo,   self.out_info,  QOS_SENSOR)
+        self.pub_cloud = self.create_publisher(PointCloud2,  self.out_cloud, QOS_SENSOR)
+
+        self.create_subscription(Odometry,   self.in_odom,  self.cb_odom,  QOS_DEFAULT)
+        self.create_subscription(Image,      self.in_depth, self.cb_depth, QOS_SENSOR)
+        self.create_subscription(CameraInfo, self.in_info,  self.cb_info,  QOS_SENSOR)
+        self.create_subscription(PointCloud2,self.in_cloud, self.cb_cloud, QOS_SENSOR)
+
+        self.get_logger().info(f"[odom ] {self.in_odom}  -> {self.out_pose}")
+        self.get_logger().info(f"[depth] {self.in_depth} -> {self.out_depth}")
+        self.get_logger().info(f"[info ] {self.in_info}  -> {self.out_info}")
+        self.get_logger().info(f"[cloud] {self.in_cloud} -> {self.out_cloud}")
+
+    def cb_odom(self, msg: Odometry):
+        ps = PoseStamped()
+        ps.header = msg.header          # stamp=sim_time, frame_id=odom
+        ps.pose = msg.pose.pose         # base_link pose；你 base->camera 是单位变换时可直接当 camera_pose
+        self.pub_pose.publish(ps)
+
+    def cb_depth(self, msg: Image):
+        self.pub_depth.publish(msg)
+
+    def cb_info(self, msg: CameraInfo):
+        self.pub_info.publish(msg)
+
+    def cb_cloud(self, msg: PointCloud2):
+        self.pub_cloud.publish(msg)
+
+def main():
+    rclpy.init()
+    node = Adapter()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()
+PY
+  chmod +x "$ADAPTER_PY"
+
+  # 用你脚本里的 DRONE_ID 自动填参
+  start_bg "ego_input_adapter" python3 "$ADAPTER_PY" --ros-args \
+    -p use_sim_time:=true \
+    -p in_odom:="${ROS_ODOM_TOPIC}" \
+    -p in_depth:="${ROS_DEPTH_IMAGE_TOPIC}" \
+    -p in_info:="${ROS_DEPTH_INFO_TOPIC}" \
+    -p in_cloud:="${ROS_CLOUD_TOPIC}" \
+    -p out_pose:="${PCL_CAMERA_POSE_TOPIC}" \
+    -p out_depth:="${PCL_DEPTH_TOPIC}" \
+    -p out_info:="${PCL_DEPTH_INFO_TOPIC}" \
+    -p out_cloud:="${PCL_CLOUD_TOPIC}"
+
+  # 快检：确保这三路不再是“Terminated”
+  wait_topic_once "${PCL_CAMERA_POSE_TOPIC}" 10 || true
+  wait_topic_once "${PCL_DEPTH_TOPIC}" 10 || true
+  wait_topic_once "${PCL_CLOUD_TOPIC}" 10 || true
+else
+  log "SKIP: ego input adapter disabled (ENABLE_EGO_INPUT_ADAPTER=0)"
+fi
 
 ### ===== 4.8) ROS -> PX4 offboard bridge =====
 start_bg "px4_offboard" ros2 run px4_offboard_bridge pose_to_px4_offboard \
@@ -246,9 +371,9 @@ start_bg "ego_launch" ros2 launch "${EGO_LAUNCH_PKG}" "${EGO_LAUNCH_FILE}" \
   flight_type:="${FLIGHT_TYPE}" \
   drone_id:="${DRONE_ID}" \
   cloud_topic:="${ROS_CLOUD_TOPIC}" \
-  px4_odom_topic:="${EGO_ODOM_ARG}" \
-  odometry_topic:="${EGO_ODOM_ARG}"
-
+  px4_odom_topic:="${ROS_ODOM_TOPIC}" \
+  odometry_topic:="${EGO_ODOM_ARG}" \
+  goal_z:=2.0
 
 ### ===== 6) TF 快检 =====
 if [[ "$CHECK_TF" == "1" ]]; then
