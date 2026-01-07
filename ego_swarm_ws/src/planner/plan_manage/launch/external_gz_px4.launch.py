@@ -68,7 +68,7 @@ def generate_launch_description():
             # planner 仍然订阅 pcl_render_node 输出（advanced_param 会自动拼 /drone_0_pcl_render_node/*）
             'camera_pose_topic': 'pcl_render_node/camera_pose',
             'depth_topic': 'pcl_render_node/depth',
-            'cloud_topic': 'pcl_render_node/cloud',
+            'cloud_topic': 'cloud',   # advanced_param 会拼成 /drone_0_cloud
 
             # 相机内参/约束（沿用你原来的）
             'cx': str(321.04638671875),
@@ -82,7 +82,7 @@ def generate_launch_description():
             'use_distinctive_trajs': 'True',
             'flight_type': str(1),
 
-            'point_num': str(4),
+            'point_num': str(5),
             'point0_x': str(15.0),  'point0_y': str(0.0), 'point0_z': str(1.0),
             'point1_x': str(-15.0), 'point1_y': str(0.0), 'point1_z': str(1.0),
             'point2_x': str(15.0),  'point2_y': str(0.0), 'point2_z': str(1.0),
@@ -107,7 +107,7 @@ def generate_launch_description():
     )
     ld.add_action(traj_server_node)
 
-    # ===== pcl_render_node：直接吃外部点云/里程计，输出给 planner =====
+    # ===== pcl_render_node：吃外部点云/里程计，输出 private topics 给 planner =====
     pcl_render_node = Node(
         package='local_sensing',
         executable='pcl_render_node',
@@ -115,20 +115,13 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'use_sim_time': use_sim_time},
-            # 兜底：避免 1/0 -> inf 导致 timer 崩
             {'sensing_rate': 30.0},
             {'estimation_rate': 30.0},
         ],
         remappings=[
-            # 输入（订阅名在 C++ 里就是 global_map / local_map / odometry）
-            ('global_map', cloud_topic),
-            ('local_map',  cloud_topic),
-            ('odometry',   px4_odom_topic),
-
-            # 输出（保持 advanced_param 期望的 /drone_0_pcl_render_node/*）
-            ('camera_pose',       ['drone_', drone_id, '_pcl_render_node/camera_pose']),
-            ('depth',             ['drone_', drone_id, '_pcl_render_node/depth']),
-            ('pcl_render_node/cloud', ['drone_', drone_id, '_pcl_render_node/cloud']),
+            ('/pcl_render_node/cloud', cloud_topic),
+            ('pcl_render_node/cloud',  cloud_topic),   # 可选兜底
+            ('odometry', px4_odom_topic),
         ],
     )
     ld.add_action(pcl_render_node)

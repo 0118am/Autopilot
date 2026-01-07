@@ -1,6 +1,6 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -104,34 +104,6 @@ def generate_launch_description():
     )
 
     # -------------------------
-    # goal_z_filter：把 RViz 2D goal 的 z 强制改成 goal_z
-    # -------------------------
-    goal_z_filter = ExecuteProcess(
-        cmd=[
-            'python3', '-c',
-            (
-                'import os\n'
-                'import rclpy\n'
-                'from rclpy.node import Node\n'
-                'from geometry_msgs.msg import PoseStamped\n'
-                'Z=float(os.environ.get("GOAL_Z","1.5"))\n'
-                'class GoalZ(Node):\n'
-                '    def __init__(self):\n'
-                '        super().__init__("goal_z_filter")\n'
-                '        self.sub=self.create_subscription(PoseStamped,"/goal_pose",self.cb,10)\n'
-                '        self.pub=self.create_publisher(PoseStamped,"/goal_pose_z",10)\n'
-                '        self.get_logger().info(f"Force /goal_pose z -> {Z}, publish /goal_pose_z")\n'
-                '    def cb(self,msg):\n'
-                '        msg.pose.position.z=Z\n'
-                '        self.pub.publish(msg)\n'
-                'rclpy.init(); node=GoalZ(); rclpy.spin(node)\n'
-            )
-        ],
-        additional_env={'GOAL_Z': goal_z},
-        output='screen'
-    )
-
-    # -------------------------
     # Ego Planner Node
     # -------------------------
     ego_planner_node = Node(
@@ -140,7 +112,8 @@ def generate_launch_description():
         name=['drone_', drone_id, '_ego_planner_node'],
         output='screen',
         remappings=[
-            ('odom_world', ['drone_', drone_id, '_', odometry_topic]),
+            # planner 自己用的里程计
+            ('odom_world', ['/drone_', drone_id, '_odom_sync']),
             ('planning/bspline', ['drone_', drone_id, '_planning/bspline']),
             ('planning/data_display', ['drone_', drone_id, '_planning/data_display']),
             ('planning/broadcast_bspline_from_planner', '/broadcast_bspline'),
@@ -152,19 +125,31 @@ def generate_launch_description():
             ('optimal_list', ['drone_', drone_id, '_plan_vis/optimal_list']),
             ('a_star_list', ['drone_', drone_id, '_plan_vis/a_star_list']),
 
-            ('grid_map/odom', ['drone_', drone_id, '_', odometry_topic]),
-            ('grid_map/cloud', ['drone_', drone_id, '_', cloud_topic]),
-            ('grid_map/pose', ['drone_', drone_id, '_', camera_pose_topic]),
-            ('grid_map/depth', ['drone_', drone_id, '_', depth_topic]),
-            ('grid_map/occupancy_inflate', ['drone_', drone_id, '_grid/grid_map/occupancy_inflate']),
+            # grid_map 输入：用 odom + cloud
+            ('grid_map/odom',  ['/drone_', drone_id, '_odom_sync']),
+            ('grid_map/cloud', ['/drone_', drone_id, '_cloud']),
+            # ('grid_map/pose',  ['drone_', drone_id, '_', camera_pose_topic]),
+            # ('grid_map/depth', ['drone_', drone_id, '_', depth_topic]),
 
-            # 手动目标输入：EGO goal 订阅重映射到 /goal_pose_z
-            ('/move_base_simple/goal', '/goal_pose_z'),
-            ('move_base_simple/goal',  '/goal_pose_z'),
-            ('/goal',                  '/goal_pose_z'),
-            ('goal',                   '/goal_pose_z'),
+            ('grid_map/occupancy_inflate',  ['drone_', drone_id, '_grid/grid_map/occupancy_inflate']),
+            ('grid_map/occupancy',          ['drone_', drone_id, '_grid/grid_map/occupancy']),
+
+            # 让 EGO 里用 "/grid_map/..." 的绝对话题名也能重映射成功
+            ('/grid_map/occupancy_inflate', ['drone_', drone_id, '_grid/grid_map/occupancy_inflate']),
+            ('/grid_map/occupancy',         ['drone_', drone_id, '_grid/grid_map/occupancy']),
+
+            # 手动目标输入：直接用 RViz 的 /goal_pose
+            ('/move_base_simple/goal', '/goal_pose'),
+            ('move_base_simple/goal',  '/goal_pose'),
+            ('/goal',                  '/goal_pose'),
+            ('goal',                   '/goal_pose'),
         ],
         parameters=[
+            {'use_sim_time': True},
+
+            {'grid_map/pose_type': 2},            # 2 = Odometry
+            {'grid_map/use_depth_filter': False}, # 你不走 depth 了
+            {'grid_map/frame_id': "odom"},
             # 这些来自 LaunchConfiguration 的，必须 ParameterValue 强制类型
             {'fsm/flight_type': ParameterValue(flight_type, value_type=int)},
             {'fsm/planning_horizon': ParameterValue(planning_horizon, value_type=float)},
@@ -207,7 +192,7 @@ def generate_launch_description():
 
             {'prediction/obj_num': ParameterValue(obj_num_set, value_type=int)},
 
-            {'fsm/thresh_replan_time': 0.10},
+            {'fsm/thresh_replan_time': 0.05},
             {'fsm/thresh_no_replan_meter': 0.3},
             {'fsm/planning_horizen_time': 3.0},
             {'fsm/emergency_time': 1.0},
@@ -218,16 +203,16 @@ def generate_launch_description():
             {'grid_map/local_update_range_x': 50.0},
             {'grid_map/local_update_range_y': 50.0},
             {'grid_map/local_update_range_z': 6.0},
-            {'grid_map/obstacles_inflation': 0.05},
+            {'grid_map/obstacles_inflation': 0.15},
             {'grid_map/local_map_margin': 8},
             {'grid_map/ground_height': -0.30},
 
             {'grid_map/use_depth_filter': True},
             {'grid_map/depth_filter_tolerance': 0.15},
-            {'grid_map/depth_filter_maxdist': 5.0},
-            {'grid_map/depth_filter_mindist': 0.2},
-            {'grid_map/depth_filter_margin': 2},
-            {'grid_map/k_depth_scaling_factor': 1000.0},
+            {'grid_map/depth_filter_maxdist': 18.0},
+            {'grid_map/depth_filter_mindist': 0.1},
+            {'grid_map/depth_filter_margin': 3},
+            {'grid_map/k_depth_scaling_factor': 1.0},
             {'grid_map/skip_pixel': 2},
 
             {'grid_map/p_hit': 0.65},
@@ -236,10 +221,10 @@ def generate_launch_description():
             {'grid_map/p_max': 0.90},
             {'grid_map/p_occ': 0.80},
             {'grid_map/min_ray_length': 0.1},
-            {'grid_map/max_ray_length': 4.5},
+            {'grid_map/max_ray_length': 18.0},
 
             {'grid_map/virtual_ceil_height': 2.9},
-            {'grid_map/visualization_truncate_height': 1.8},
+            {'grid_map/visualization_truncate_height': 3.5},
             {'grid_map/show_occ_time': False},
             {'grid_map/pose_type': 1},
             {'grid_map/frame_id': "odom"},
@@ -309,8 +294,6 @@ def generate_launch_description():
     ld.add_action(drone_id_arg)
 
     ld.add_action(goal_z_arg)
-    ld.add_action(goal_z_filter)
-
     # node
     ld.add_action(ego_planner_node)
 
